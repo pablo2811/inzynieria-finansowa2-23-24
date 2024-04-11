@@ -1,261 +1,171 @@
-import numpy as np
-import numpy.typing as npt
+# Wersja 1.0 z dnia 12.03.2024
 
+import numpy as np
 from scipy.stats import norm
 
-from typing import Sequence, List, Any
-
-
-def cc_imp_curves(
-    FX_spot: float,
-    tenor: npt.NDArray[Any] | Any,
-    yf: npt.NDArray[np.float_] | float,
-    rate_ccy: npt.NDArray[np.float_] | float,
-    swapp: npt.NDArray[np.float_],
-):
-    rt = yf * rate_ccy
-    df_ccy = 1 / (1 + rt)
-    FX_fwd = FX_spot + swapp / 1_000
-    df_pln = FX_fwd / FX_spot * df_ccy
-    rate_pln = (1 / df_pln - 1) / yf
-
-    return [
-        tenor,
-        yf,
-        df_ccy,
-        rate_ccy,
-        df_pln,
-        rate_pln,
+def cc_imp_curves(FXspot,tenor,yf,rate_ccy,swapp):
+    rt     = yf*rate_ccy
+    df_ccy = 1/(1+rt)
+    FXfwd  = FXspot+swapp/10000
+    df_pln = FXspot/FXfwd*df_ccy
+    rate_pln = (1/df_pln-1)/yf
+    curves=[
+         tenor,
+         yf,
+         df_ccy,
+         rate_ccy,
+         df_pln,
+         rate_pln
     ]
-
-
-def cc_imp_curves2(
-    FX_spot: float,
-    tenor: npt.NDArray[Any] | Any,
-    days: npt.NDArray[np.float_] | float,
-    rate_ccy: npt.NDArray[np.float_] | float,
-    ccy_basis: int,
-    pln_basis: int,
-    swapp: npt.NDArray[np.float_],
-):
-    yf_ccy = days / ccy_basis
-    yf_pln = days / pln_basis
-
-    rt = yf_ccy * rate_ccy
-    df_ccy = 1 / (1 + rt)
-    FX_fwd = FX_spot + swapp / 10_000
-    df_pln = FX_spot / FX_fwd * df_ccy
-    rate_pln = (1 / df_pln - 1) / yf_pln
-
-    return [
-        tenor,
-        yf_ccy,
-        df_ccy,
-        rate_ccy,
-        yf_pln,
-        df_pln,
-        rate_pln,
+    return curves
+    
+def cc_imp_curves2(FXspot,tenor,days,rate_ccy,ccy_basis, pln_basis,swapp):
+    yf_ccy=days/ccy_basis
+    yf_pln=days/pln_basis
+    rt     = yf_ccy*rate_ccy
+    df_ccy = 1/(1+rt)
+    FXfwd  = FXspot+swapp/10000
+    df_pln = FXspot/FXfwd*df_ccy
+    rate_pln = (1/df_pln-1)/yf_pln
+    curves=[
+         tenor,
+         yf_ccy,
+         df_ccy,
+         rate_ccy,
+         yf_pln,
+         df_pln,
+         rate_pln
     ]
-
-
-def int_df(t, yf, df):
-    # DF(t) = DF(t_i) ^ (1 - tau) * DF(t_i+1) ^ tau
-    # tau = (t - t_i) / (t_i+1 - t_i)
-    # if less DF(t) = DF(t_1) ^ (t / t_1) = e ^ (-r * t)
-    i_max = len(yf) - 1
-    if t < yf[0]:
-        dft = df[0] ** (t / yf[0])
-    elif t > yf[i_max]:
-        dft = df[i_max] ** (t / yf[i_max])
+    return curves
+    
+    
+def int_df(t,yf,df):
+    i_max = len(yf)-1
+    if t<=yf[0]:
+        dft = df[0]**(t/yf[0])
+    elif t>yf[i_max]:
+        dft = df[i_max]**(t/yf[i_max])
     else:
         i = 0
         yfi = yf[i]
         while t > yfi:
-            i += 1
-            yfi = yf[i]
-        tau = (t - yf[i - 1]) / (yf[i] - yf[i - 1])
-        dft = df[i - 1] ** (1 - tau) * df[i] ** tau
+            i+=1
+            yfi = yf[i]    
+        tau = (t-yf[i-1])/(yf[i]-yf[i-1])
+        dft = df[i-1]**(1-tau)*df[i]**tau
+    return dft    
 
-    return dft
+##-----------------------------------------------
 
+def BinaryPay(omega, S, K):
+    if omega*(S-K)>=0:
+        val = 1.0
+    else:
+        val = 0.0
+    return val
 
-## ----------------------------
+def VanillaPay(omega, S, K):
+    return max(omega*(S-K), 0)
 
+##-------------------------------------------------
 
-def BS_value(
-    fx_spot: npt.NDArray[np.float_] | float,
-    df_ccy_t: float,
-    df_pln_t: float,
-    tau: float,
-    sigma: float,
-    omega: int,
-    tenor: float,
-    strike: float,
-    nominal: float,
-):
+def BS_value(fx_spot,df_ccy_t,df_pln_t,tau,sigma,omega,strike,nominal):   
+    fx_fwd = fx_spot*df_ccy_t/df_pln_t
+    d1 = (np.log(fx_fwd/strike)+0.5*sigma**2*tau)/(sigma*np.sqrt(tau))
+    d2 = d1 - sigma*np.sqrt(tau)
+    value = nominal*omega*(df_ccy_t*fx_spot*norm.cdf(omega*d1)-df_pln_t*strike*norm.cdf(omega*d2))
+    return value
 
-    fx_fwd = fx_spot * df_ccy_t / df_pln_t
-    d1 = (np.log(fx_fwd / strike) + 0.5 * sigma**2 * tau) / (sigma * np.sqrt(tau))
-    d2 = d1 - sigma * np.sqrt(tau)
-    value = (
-        nominal
-        * omega
-        * (
-            df_ccy_t * fx_spot * norm.cdf(omega * d1)
-            - df_pln_t * strike * norm.cdf(omega * d2)
-        )
-    )
+def BS_Binary(omega, FXspot, sigma, df_pln, df_ccy, strike, tau, N,curr):
+    d1 = (np.log(FXspot*df_ccy/(strike*df_pln))+0.5*sigma**2*tau)/(np.sqrt(tau)*sigma)
+    d2 = d1 - sigma*np.sqrt(tau)
+    if curr=="nonbase": 
+        value=N*df_pln*norm.cdf(omega*d2)
+    elif curr=="base":
+        value=N*FXspot*df_ccy*norm.cdf(omega*d1)
     return value
 
 
-def BS_payout(
-    omega: int,
-    strike: float,
-    nominal: float,
-    fx_spot: npt.NDArray[np.float_],
-):
-    return nominal * np.where(
-        omega * (fx_spot - strike) > 0, omega * (fx_spot - strike), 0
-    )
+# Greki - współczynniki wrażliwości opcji waniliowych z formuł BS
 
+def DeltaBS(omega,FXspot, sigma, df_pln, df_ccy, strike, tau, N):
+    d1 = (np.log(FXspot*df_ccy/(strike*df_pln))+0.5*sigma**2*tau)/(np.sqrt(tau)*sigma)
+    return N*omega*df_ccy*norm.cdf(omega*d1)
 
-def BS_delta(
-    fx_spot: npt.NDArray[np.float_] | float,
-    df_ccy_t: float,
-    df_pln_t: float,
-    tau: float,
-    sigma: float,
-    omega: int,
-    tenor: float,
-    strike: float,
-    nominal: float,
-    is_spot: bool,
-    with_premium: bool,
-):
+def GammaBS(FXspot, sigma, df_pln, df_ccy, strike, tau, N):
+    d1 = (np.log(FXspot*df_ccy/(strike*df_pln))+0.5*sigma**2*tau)/(np.sqrt(tau)*sigma)
+    return N*df_ccy*norm.pdf(d1)/(FXspot*np.sqrt(tau)*sigma)
 
-    fx_fwd = fx_spot * df_ccy_t / df_pln_t
-    d1 = (np.log(fx_fwd / strike) + 0.5 * sigma**2 * tau) / (sigma * np.sqrt(tau))
-    d2 = d1 - sigma * np.sqrt(tau)
-    if is_spot:
-        df_ccy = df_ccy_t
-    else:
-        df_ccy = 1
-    if with_premium:
-        delta = nominal * omega * (strike / fx_fwd) * df_ccy * norm.cdf(omega * d2)
-    else:
-        delta = nominal * omega * df_ccy * norm.cdf(omega * d1)
+def VegaBS(FXspot, sigma, df_pln, df_ccy, strike, tau, N):
+    d1 = (np.log((FXspot*df_ccy)/(strike*df_pln))+0.5*sigma**2*tau)/(np.sqrt(tau)*sigma)
+    return N*FXspot*df_ccy*np.sqrt(tau)*norm.pdf(d1)
+    
+def VolgaBS(FXspot, sigma, df_pln, df_ccy, strike, tau, N):
+    d1 = (np.log((FXspot*df_ccy)/(strike*df_pln))+0.5*sigma**2*tau)/(np.sqrt(tau)*sigma)
+    d2 = d1 - sigma*np.sqrt(tau)
+    return N*FXspot*df_ccy*np.sqrt(tau)*norm.pdf(d1)*d1*d2/sigma
+
+def VannaBS(FXspot, sigma, df_pln, df_ccy, strike, tau, N):
+    d1 = (np.log((FXspot*df_ccy)/(strike*df_pln))+0.5*sigma**2*tau)/(np.sqrt(tau)*sigma)
+    d2 = d1 - sigma*np.sqrt(tau)
+    return -N*df_ccy*norm.pdf(d1)*d2/sigma
+    
+# ----------------------------------------------------------------
+    
+def Delta_pi_BS(spot_fwd, omega, FXspot, sigma, df_pln, df_ccy, strike, tau, N):
+    FXfwd=FXspot*df_ccy/df_pln
+    d2 = (np.log(FXfwd/strike)-0.5*sigma**2*tau)/(np.sqrt(tau)*sigma)
+    if spot_fwd=="spot":
+    	delta=N*omega*strike*df_ccy*norm.cdf(omega*d2)/FXfwd
+    elif spot_fwd=="fwd":
+    	delta=N*omega*strike*norm.cdf(omega*d2)/FXfwd
     return delta
+    
+def StrikeFromDelta(spot_fwd,prem_incl,omega,delta,FXspot,sigma,df_pln,df_ccy,T):
+    eps=0.00001
+    Imax=10
+    i=0
+    K1=FXspot*df_ccy/df_pln
+    K=0
+    dK=0.001*K1
+    if prem_incl=="pi": # pi - delta z premią
+        while abs(K1-K)>eps and i<Imax:
+            K=K1
+            delta1=Delta_pi_BS(spot_fwd,omega, FXspot, sigma, df_pln, df_ccy, K1, T, 1)
+            delta_p=Delta_pi_BS(spot_fwd,omega, FXspot, sigma, df_pln, df_ccy, K1+dK, T, 1)
+            delta_m=Delta_pi_BS(spot_fwd,omega, FXspot, sigma, df_pln, df_ccy, K1-dK, T, 1)
+            d_delta=(delta_p-delta_m)/(2*dK)
+            K1-=(delta1-delta)/d_delta
+            i+=1
+    elif prem_incl=="std": # std - delta bez premii
+        F=FXspot*df_ccy/df_pln
+        if spot_fwd=="spot": df=df_ccy
+        elif spot_fwd=="fwd": df=1
+        K=F*np.exp(-omega*norm.ppf(omega*delta/df)*sigma*np.sqrt(T)+0.5*sigma**2*T)  
+    return K
+    
+# Implikowanie zmienności z ceny opcji  
 
-
-def BS_strike_from_delta(
-    delta: npt.NDArray[np.float_] | float,
-    fx_spot: npt.NDArray[np.float_] | float,
-    df_ccy_t: float,
-    df_pln_t: float,
-    tau: float,
-    sigma: float,
-    omega: int,
-    tenor: float,
-    is_spot: bool,
-    with_premium: bool,
-):
-
-    fx_fwd = fx_spot * df_ccy_t / df_pln_t
-    if is_spot:
-        df_ccy = df_ccy_t
+def ImpVol(Value_mkt,omega,FXspot,df_d,df_f,K,T): # sigma0 - punkt startowy 
+    FXfwd=FXspot*df_f/df_d
+    if Value_mkt<max(0,omega*(FXspot*df_f-K*df_d)) or (omega==1 and 
+    Value_mkt>FXspot*df_f) or (omega==-1 and Value_mkt>K*df_d): sigma=0
     else:
-        df_ccy = 1
-    if with_premium:
-        from functools import partial
+        saddle_point=np.sqrt(2*abs(np.log(FXfwd/K))/T)
+        if saddle_point > 0: sigma = 0.9*saddle_point
+        else: sigma = 0.1
+        Nmax=100
+        eps1=0.0001
+        eps2=1e-06
+        sigma1=sigma+1.1*eps1
+        Value_BS=Value_mkt+1.1*eps2
+        i=1
+        while abs(sigma1-sigma)>eps1 and abs(Value_mkt-Value_BS)>eps2 and i<Nmax:
+            sigma1=sigma
+            Value_BS=BS_value(omega, FXspot, sigma, df_d, df_f, K, T, 1)
+            Vega_BS=VegaBS(FXspot, sigma, df_d, df_f, K, T, 1)
+            sigma-=(Value_BS-Value_mkt)/Vega_BS
+            i+=1
+    return sigma
 
-        optimize_fn = partial(
-            BS_delta,
-            fx_spot=fx_spot,
-            df_ccy_t=df_ccy_t,
-            df_pln_t=df_pln_t,
-            tau=tau,
-            sigma=sigma,
-            omega=omega,
-            tenor=tenor,
-            nominal=1,
-            is_spot=is_spot,
-            with_premium=with_premium,
-        )
-
-        epsilon = 0.1
-        K_prev = fx_spot - 2 * epsilon
-        K_current = fx_spot
-        n_iter = 0
-        dk = 1e-2
-        while abs(K_prev - K_current) > epsilon and n_iter < 10:
-            f_current = optimize_fn(strike=K_current) - delta  # type: ignore
-            f_current1 = optimize_fn(strike=K_current + dk) - delta  # type: ignore
-            f_current2 = optimize_fn(strike=K_current - dk) - delta  # type: ignore
-            df_dstrike = (f_current1 - f_current2) / (2 * dk)
-            K_prev = K_current
-            K_current = K_current - f_current / df_dstrike
-            n_iter += 1
-        strike = K_current
-    else:
-        d1 = norm.ppf(delta / (omega * df_ccy))
-        strike = fx_fwd / np.exp(d1 * sigma * np.sqrt(tau) - 0.5 * sigma**2 * tau)
-
-    return strike
-
-
-strategy = [
-    {
-        "position": "BUY",
-        "type": "CALL",  # CALL, PUT
-        "nominal": 100_000,
-        "strike": 4.5,
-    },
-    {
-        "position": "SELL",
-        "strike": 4.5,
-        "type": "CALL",  # CALL, PUT
-        "nominal": 100_000,
-    },
-]
-
-
-def _evaluate_option(
-    position: str,
-    strike: float,
-    nominal: float,
-    type: str,
-    fx_spot: float,
-) -> float:
-    if type == 'CALL':
-        omega = 1
-    else:
-        omega = -1
-
-    bs_value = BS_payout(
-        omega,
-        strike=strike,
-        nominal=nominal,
-        fx_spot=fx_spot, # type: ignore
-    )
-
-    if position == 'BUY':
-        return bs_value  # type: ignore
-    else:
-        return -bs_value  # type: ignore
-
-
-def evaluate_strategy(
-    strategy: List[dict[str, Any]],
-    fx_spot: float,
-):
-    total = 0
-    for option in strategy:
-        total += _evaluate_option(
-            option["position"],
-            option["strike"],
-            option["nominal"],
-            option["type"],
-            fx_spot,
-        )
-
-    return total
+# ----------------------------------------------------------------
